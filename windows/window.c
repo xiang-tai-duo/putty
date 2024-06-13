@@ -64,6 +64,9 @@
 #define WM_IGNORE_CLIP (WM_APP + 2)
 #define WM_FULLSCR_ON_MAX (WM_APP + 3)
 #define WM_GOT_CLIPDATA (WM_APP + 4)
+#define WM_SIGINT (WM_APP + 6)
+#define WM_LOCK (WM_APP + 7)
+#define WM_UNLOCK (WM_APP + 8)
 
 /* Needed for Chinese support and apparently not always defined. */
 #ifndef VK_PROCESSKEY
@@ -387,13 +390,26 @@ static LRESULT (WINAPI *sw_DispatchMessage)(const MSG *);
 static LRESULT (WINAPI *sw_DefWindowProc)(HWND, UINT, WPARAM, LPARAM);
 static void sw_SetWindowText(HWND hwnd, wchar_t *text)
 {
-    if (unicode_window) {
-        SetWindowTextW(hwnd, text);
+    size_t length = wcslen(text);
+    size_t cb = (length + 100) * sizeof(wchar_t);
+    wchar_t* p = malloc(cb);
+    memset(p, 0, cb);
+#if 0
+    wcscpy(p, text);
+#endif
+    if (wcslen(p) > 0) {
+        wcscat(p, L" - xiang-tai-duo");
     } else {
-        char *mb = dup_wc_to_mb(DEFAULT_CODEPAGE, 0, text, "?");
+        wcscat(p, L"PuTTY - https://github.com/xiang-tai-duo/putty.git");
+    }
+    if (unicode_window) {
+        SetWindowTextW(hwnd, p);
+    } else {
+        char *mb = dup_wc_to_mb(DEFAULT_CODEPAGE, 0, p, "?");
         SetWindowTextA(hwnd, mb);
         sfree(mb);
     }
+    free(p);
 }
 
 static HINSTANCE hprev;
@@ -597,6 +613,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
             modalfatalbox("Unable to create terminal window: %s",
                           win_strerror(GetLastError()));
         }
+        char handle[100] = { 0 };
+        sprintf_s(handle, _countof(handle) - 1, "%lld", (__int64)wgs->term_hwnd);
+        conf_set_str(wgs->conf, CONF_window_handle, handle);
         memset(&wgs->dpi_info, 0, sizeof(struct _dpi_info));
         init_dpi_info(wgs);
         sfree(uappname);
@@ -748,6 +767,28 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
      * Set up the initial input locale.
      */
     set_input_locale(wgs, GetKeyboardLayout(0));
+
+    if (conf_get_bool(wgs->conf, CONF_hide)) {
+        show = SW_HIDE;
+    }
+
+    RECT rect;
+    GetWindowRect(wgs->term_hwnd, &rect);
+    int windowWidth = rect.right - rect.left;
+    int windowHeight = rect.bottom - rect.top;
+    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    SetWindowPos(wgs->term_hwnd, HWND_NOTOPMOST, (screenWidth-windowWidth)/2, (screenHeight-windowHeight)/2, windowWidth, windowHeight, 0);
+
+    HMODULE hModule = LoadLibrary(TEXT("uxtheme.dll"));
+    if (hModule) {
+        typedef HRESULT (WINAPI *SETWINDOWTHEME)(HWND, LPCWSTR, LPCWSTR);
+        SETWINDOWTHEME SetWindowTheme = (SETWINDOWTHEME)GetProcAddress(hModule, "SetWindowTheme");
+        if (SetWindowTheme) {
+            SetWindowTheme(wgs->term_hwnd, L" ", L" ");
+        }
+        FreeLibrary(hModule);
+    }
 
     /*
      * Finally show the window!
@@ -1136,10 +1177,12 @@ static void win_seat_connection_fatal(Seat *seat, const char *msg)
     WinGuiSeat *wgs = container_of(seat, WinGuiSeat, seat);
     char *title = dupprintf("%s Fatal Error", appname);
     show_mouseptr(wgs, true);
-    MessageBox(wgs->term_hwnd, msg, title, MB_ICONERROR | MB_OK);
+    if (!conf_get_bool(wgs->conf, CONF_silent)) {
+        MessageBox(wgs->term_hwnd, msg, title, MB_ICONERROR | MB_OK);
+    }
     sfree(title);
 
-    if (conf_get_int(wgs->conf, CONF_close_on_exit) == FORCE_ON)
+    if (conf_get_int(wgs->conf, CONF_close_on_exit) == FORCE_ON || conf_get_bool(wgs->conf, CONF_silent))
         PostQuitMessage(1);
     else {
         queue_toplevel_callback(close_session, wgs);
@@ -2232,6 +2275,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
         break;
       case WM_COMMAND:
       case WM_SYSCOMMAND:
+        if (message == WM_COMMAND && conf_get_bool(wgs->conf, CONF_lock)) {
+            return 0;
+        }
         switch (wParam & ~0xF) {       /* low 4 bits reserved to Windows */
           case SC_VSCROLL:
           case SC_HSCROLL:
@@ -2601,6 +2647,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
       case WM_LBUTTONUP:
       case WM_MBUTTONUP:
       case WM_RBUTTONUP:
+        if (conf_get_bool(wgs->conf, CONF_lock)) {
+            return 0;
+        }
         if (message == WM_RBUTTONDOWN &&
             ((wParam & MK_CONTROL) ||
              (conf_get_int(wgs->conf, CONF_mouse_is_xterm) == MOUSE_WINDOWS))) {
@@ -3234,6 +3283,15 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
       case WM_SYSKEYDOWN:
       case WM_KEYUP:
       case WM_SYSKEYUP:
+        if (conf_get_bool(wgs->conf, CONF_lock)) {
+            switch (message) {
+                case WM_KEYDOWN:
+                case WM_KEYUP:
+                    return 0;
+                default:
+                    break;
+            }
+        }
         /*
          * Add the scan code and keypress timing to the random
          * number noise.
@@ -3394,6 +3452,17 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
       case WM_GOT_CLIPDATA:
         process_clipdata(wgs, (HGLOBAL)lParam, wParam);
         return 0;
+      case WM_SIGINT: {
+            WCHAR cbuf[1] = { '\x03' };
+            term_keyinputw(wgs->term, cbuf, 1);
+            return 0;
+      }
+      case WM_LOCK:
+            conf_set_bool(wgs->conf, CONF_lock, true);
+            return 0;
+      case WM_UNLOCK:
+            conf_set_bool(wgs->conf, CONF_lock, false);
+            return 0;
       default:
         if (message == wm_mousewheel || message == WM_MOUSEWHEEL
                                                 || message == WM_MOUSEHWHEEL) {

@@ -940,6 +940,24 @@ int cmdline_process_param(const char *p, char *value,
         }
     }
 
+    if (!strcmp(p, "-silent")) {
+        RETURN(1);
+        SAVEABLE(0);
+        conf_set_bool(conf, CONF_silent, true);
+    }
+
+    if (!strcmp(p, "-lock")) {
+        RETURN(1);
+        SAVEABLE(0);
+        conf_set_bool(conf, CONF_lock, true);
+    }
+
+    if (!strcmp(p, "-hide")) {
+        RETURN(1);
+        SAVEABLE(0);
+        conf_set_bool(conf, CONF_hide, true);
+    }
+
 #ifdef _WINDOWS
     /*
      * Cross-tool options only available on Windows.
@@ -948,6 +966,11 @@ int cmdline_process_param(const char *p, char *value,
         !strcmp(p, "-restrictacl")) {
         RETURN(1);
         restrict_process_acl();
+    }
+    if (!strcmp(p, "-h")) {
+        RETURN(2);
+        SAVEABLE(0);
+        conf_set_str(conf, CONF_callback_window_handle, value);
     }
 #endif
 

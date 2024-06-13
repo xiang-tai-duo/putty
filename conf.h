@@ -1281,3 +1281,29 @@ CONF_OPTION(winclass,
     DEFAULT_STR(""),
     SAVE_KEYWORD("WindowClass"),
 )
+CONF_OPTION(silent,
+    VALUE_TYPE(BOOL),
+    DEFAULT_BOOL(false),
+    SAVE_KEYWORD("Silent"),
+)
+CONF_OPTION(window_handle,
+    VALUE_TYPE(STR),
+    DEFAULT_STR(0),
+    SAVE_KEYWORD("WindowHandle"),
+)
+CONF_OPTION(callback_window_handle,
+    VALUE_TYPE(STR),
+    DEFAULT_STR(0),
+    SAVE_KEYWORD("CallbackWindowHandle"),
+)
+CONF_OPTION(lock,
+    VALUE_TYPE(BOOL),
+    DEFAULT_BOOL(false),
+    SAVE_KEYWORD("Lock"),
+)
+CONF_OPTION(hide,
+    VALUE_TYPE(BOOL),
+    DEFAULT_BOOL(false),
+    SAVE_KEYWORD("hide"),
+)
+

@@ -1079,9 +1079,15 @@ SeatPromptResult verify_ssh_host_key(
                                 fingerprints[SSH_FPTYPE_MD5]);
     }
 
-    SeatPromptResult toret = seat_confirm_ssh_host_key(
-        iseat, host, port, keytype, keystr, text, helpctx, callback, ctx);
-    seat_dialog_text_free(text);
+    SeatPromptResult toret = SPR_USER_ABORT;
+    if (conf_get_bool(conf, CONF_silent)) {
+        store_host_key(iseat.seat, host, port, keytype, keystr);
+        toret = SPR_OK;
+    } else {
+        toret = seat_confirm_ssh_host_key(
+                iseat, host, port, keytype, keystr, text, helpctx, callback, ctx);
+        seat_dialog_text_free(text);
+    }
     return toret;
 }
 

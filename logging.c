@@ -211,6 +211,20 @@ void logtraffic(LogContext *ctx, unsigned char c, int logmode)
         if (ctx->logtype == logmode)
             logwrite(ctx, make_ptrlen(&c, 1));
     }
+#ifdef _WINDOWS
+    char* p = conf_get_str(ctx->conf, CONF_callback_window_handle);
+    if (p && p[0] != '\0') {
+        __int64 call_hwnd = atoll(conf_get_str(ctx->conf, CONF_callback_window_handle));
+        if (call_hwnd) {
+            if (IsWindow((HWND)call_hwnd)) {
+                LPARAM term_hwnd = atoll(conf_get_str(ctx->conf, CONF_window_handle));
+                SendMessage((HWND) call_hwnd, WM_USER, MAKEWPARAM(c, 0), term_hwnd);
+            } else {
+                conf_set_str(ctx->conf, CONF_callback_window_handle, "");
+            }
+        }
+    }
+#endif
 }
 
 static void logevent_internal(LogContext *ctx, const char *event)
